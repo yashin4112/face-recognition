@@ -240,22 +240,15 @@ def recognize():
         os.remove(face_image_path)
         return jsonify({"message": "No face detected."}), 400
 
-    # Predict for each detected face
     user_data = None
     for (x, y, w, h) in faces_rects:
         face = gray[y:y + h, x:x + w]
         face = cv2.resize(face, (150, 150))  # Resize to match the training size
-        
+
         try:
-            # Predict the label ID and confidence
             label_id, confidence = recognizer.predict(face)
-
-            # Get folder name (primary key) from label ID
             folder_id = [label for label, idx in label_ids.items() if idx == label_id][0]
-
-            # Fetch user details from MongoDB using the folder name as primary key
             user = users_collection.find_one({"_id": ObjectId(folder_id)})
-            # print(user)
 
             if user:
                 user_data = {
@@ -265,25 +258,21 @@ def recognize():
                     "cart_items": user.get("cart_items", []),
                     "confidence": round(confidence, 2)
                 }
-                  # Stop after the first match
-            print(user_data)
         except Exception as e:
             print(f"Error in prediction: {e}")
             os.remove(face_image_path)
             return jsonify({"message": "Error during recognition."}), 500
 
-    # If no user is found or face matching fails
     if not user_data:
         os.remove(face_image_path)
         return jsonify({"message": "Face detected, but no match found in the database."}), 404
 
-    # Save the object images to process them
+    # Process object images
     object_images = request.files.getlist('object_images')
     if not object_images:
         os.remove(face_image_path)
         return jsonify({"message": "No object images uploaded."}), 400
 
-    # Prepare object images for API call
     object_image_paths = []
     for obj_img in object_images:
         obj_filename = secure_filename(obj_img.filename)
@@ -291,26 +280,18 @@ def recognize():
         obj_img.save(obj_path)
         object_image_paths.append(obj_path)
 
-    # Now, make a request to the external object detection API (127.0.0.1:5001/predict)
     object_images_files = []
-    # for img_path in object_image_paths:
-    #     with open(img_path, 'rb') as f:
-    #         object_images_files.append(('image', (os.path.basename(img_path), f)))
-
     for img_path in object_image_paths:
-        # Open the file and keep the file pointers open until the request is complete
         obj_file = open(img_path, 'rb')
         object_images_files.append(('image', (os.path.basename(img_path), obj_file, 'application/octet-stream')))
 
     try:
-        # Make the POST request to the object detection API
         response = requests.post('http://127.0.0.1:5001/predict', 
                                  files=object_images_files, 
                                  data={"user_data": user_data})
 
         if response.status_code == 200:
             object_detection_results = response.json()
-            print(object_detection_results)
         else:
             object_detection_results = {"error": "Object detection failed."}
 
@@ -321,16 +302,46 @@ def recognize():
             os.remove(path)
         return jsonify({"message": "Failed to contact object detection API."}), 500
 
-    # Clean up uploaded images
+    # Extract detected object and add to user's cart
+    print(object_detection_results,"asasahshas")
+    detected_object = object_detection_results.get("object")
+    print("Detected Object:", detected_object)  # Debug detected object
+
+    if detected_object:
+        try:
+            result = users_collection.update_one(
+                {"_id": ObjectId(user_data["id"])},
+                {"$push": {"cart_items": detected_object}}
+            )
+            print("Update Acknowledged:", result.acknowledged)
+            print("Matched Count:", result.matched_count)
+            print("Modified Count:", result.modified_count)
+
+            if result.matched_count == 0:
+                print("No user found with the given ID.")
+            elif result.modified_count == 0:
+                print("Detected object already exists in cart or no update made.")
+
+            # Fetch updated user data from database
+            updated_user = users_collection.find_one({"_id": ObjectId(user_data["id"])})
+            user_data["cart_items"] = updated_user.get("cart_items", [])
+            print("Updated User Data from DB:", user_data)
+
+        except Exception as e:
+            print(f"Error updating cart_items in MongoDB: {e}")
+    else:
+        print("No object detected to add to cart.")
+
+    # Clean up temporary files
     os.remove(face_image_path)
     # for path in object_image_paths:
     #     os.remove(path)
 
-    # Return the combined response
-    return jsonify({
-        "user_data": user_data,
-        "object_detection_results": object_detection_results
-    })
+    # Render the bill
+    print("User Data for Bill:", user_data)
+    return render_template("bill.html", user_data=user_data)
+
+
 
 
 # Webpage to upload images for training
