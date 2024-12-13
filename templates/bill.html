@@ -73,6 +73,21 @@
         font-size: 18px;
         margin-top: 20px;
       }
+      .payment-button {
+        background-color: #4caf50;
+        color: white;
+        font-size: 16px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        display: block;
+        width: 100%;
+        margin-top: 20px;
+      }
+      .payment-button:hover {
+        background-color: #45a049;
+      }
     </style>
   </head>
   <body>
@@ -104,6 +119,12 @@
           <strong>Total Price:</strong> ₹{{ "%.2f"|format(user_data.cart_items |
           sum(attribute='price')) }}
         </p>
+
+        <!-- Payment button with hidden user_id input -->
+        <form action="/process_payment" method="POST">
+          <input type="hidden" name="user_id" value="{{ user_data.id }}" />
+          <button type="submit" class="payment-button">Pay Now</button>
+        </form>
       </div>
       <div class="footer">Thank you for shopping with us!</div>
     </div>
